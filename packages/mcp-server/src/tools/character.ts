@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { FoundryClient } from '../foundry-client.js';
 import { Logger } from '../logger.js';
 import { SystemRegistry } from '../systems/system-registry.js';
-import { detectGameSystem, type GameSystem } from '../utils/system-detection.js';
+import { detectGameSystem, getCachedSystemId, type GameSystem } from '../utils/system-detection.js';
+import type { SystemAdapter } from '../systems/types.js';
 
 export interface CharacterToolsOptions {
   foundryClient: FoundryClient;
@@ -30,6 +31,25 @@ export class CharacterTools {
       this.cachedGameSystem = await detectGameSystem(this.foundryClient, this.logger);
     }
     return this.cachedGameSystem;
+  }
+
+  /**
+   * Resolve the active SystemAdapter, if any. Looks up by the raw
+   * Foundry system id first (so adapters whose id isn't part of the
+   * narrow `GameSystem` enum — e.g. 'dsa5', 'cosmere-rpg' — still
+   * resolve), then falls back to the normalised GameSystem.
+   */
+  private async getAdapter(): Promise<SystemAdapter | null> {
+    if (!this.systemRegistry) return null;
+    // Ensure detection has populated the cached id (it's set as a side
+    // effect of detectGameSystem, which getGameSystem wraps).
+    await this.getGameSystem();
+    const rawId = getCachedSystemId();
+    if (rawId) {
+      const byRaw = this.systemRegistry.getAdapter(rawId);
+      if (byRaw) return byRaw;
+    }
+    return this.systemRegistry.getAdapter(this.cachedGameSystem ?? 'other');
   }
 
   /**
@@ -396,7 +416,7 @@ export class CharacterTools {
       id: characterData.id,
       name: characterData.name,
       type: characterData.type,
-      basicInfo: this.extractBasicInfo(characterData),
+      basicInfo: await this.extractBasicInfo(characterData),
       stats: await this.extractStats(characterData),
       items: this.formatItems(characterData.items || []),
       effects: this.formatEffects(characterData.effects || []),
@@ -525,31 +545,48 @@ export class CharacterTools {
     });
   }
 
-  private extractBasicInfo(characterData: any): any {
-    const system = characterData.system || {};
-    
+  private async extractBasicInfo(characterData: any): Promise<any> {
     // Extract common fields that exist across different game systems
     const basicInfo: any = {};
 
-    // D&D 5e / PF2e common fields
+    // Let the active SystemAdapter (if it exposes extractBasicInfo) seed
+    // system-specific fields first. Anything it returns wins; the legacy
+    // cross-system extractor below only fills gaps.
+    try {
+      const adapter = await this.getAdapter();
+      if (adapter && typeof adapter.extractBasicInfo === 'function') {
+        const fromAdapter = adapter.extractBasicInfo(characterData);
+        if (fromAdapter && typeof fromAdapter === 'object') {
+          Object.assign(basicInfo, fromAdapter);
+        }
+      }
+    } catch (error) {
+      this.logger.warn('System adapter extractBasicInfo failed; falling back to legacy', { error });
+    }
+
+    const system = characterData.system || {};
+
+    // D&D 5e / PF2e common fields (only fill if adapter didn't already)
     if (system.attributes) {
-      if (system.attributes.hp) {
+      if (system.attributes.hp && basicInfo.hitPoints === undefined) {
         basicInfo.hitPoints = {
           current: system.attributes.hp.value,
           max: system.attributes.hp.max,
           temp: system.attributes.hp.temp || 0,
         };
       }
-      if (system.attributes.ac) {
+      if (system.attributes.ac && basicInfo.armorClass === undefined) {
         basicInfo.armorClass = system.attributes.ac.value;
       }
     }
 
-    // Level information
-    if (system.details?.level?.value) {
-      basicInfo.level = system.details.level.value;
-    } else if (system.level) {
-      basicInfo.level = system.level;
+    // Level information (only if adapter didn't set it)
+    if (basicInfo.level === undefined) {
+      if (system.details?.level?.value) {
+        basicInfo.level = system.details.level.value;
+      } else if (typeof system.level === 'number') {
+        basicInfo.level = system.level;
+      }
     }
 
     // Class information
@@ -577,19 +614,19 @@ export class CharacterTools {
   }
 
   private async extractStats(characterData: any): Promise<any> {
-    // Try using system adapter if available
-    if (this.systemRegistry) {
-      try {
-        const gameSystem = await this.getGameSystem();
-        const adapter = this.systemRegistry.getAdapter(gameSystem);
-
-        if (adapter) {
-          this.logger.debug('Using system adapter for character stats extraction', { system: gameSystem });
-          return adapter.extractCharacterStats(characterData);
-        }
-      } catch (error) {
-        this.logger.warn('Failed to use system adapter, falling back to legacy extraction', { error });
+    // Try using system adapter if available. Lookup uses the raw Foundry
+    // system id first so adapters whose id isn't part of the narrow
+    // GameSystem enum (e.g. 'dsa5', 'cosmere-rpg') resolve correctly.
+    try {
+      const adapter = await this.getAdapter();
+      if (adapter) {
+        this.logger.debug('Using system adapter for character stats extraction', {
+          system: adapter.getMetadata().id,
+        });
+        return adapter.extractCharacterStats(characterData);
       }
+    } catch (error) {
+      this.logger.warn('Failed to use system adapter, falling back to legacy extraction', { error });
     }
 
     // Legacy extraction (backwards compatibility)
