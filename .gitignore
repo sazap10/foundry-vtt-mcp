@@ -76,6 +76,11 @@ test-*.ps1
 config.local.json
 .claude/foundry-mcp-server-*.zip
 foundry-vtt-mcp.zip
+# Cosmere fork: commit the prebuilt sideload zip on the release_cosmere
+# branch so module.json's `download` URL can resolve to it via raw.github
+# while we iterate. Drop this exception (or the file) when cutting a real
+# GitHub release with the asset attached.
+!packages/foundry-module/foundry-vtt-mcp.zip
 .foundry-deploy-config
 .mcp.json
 deploy-module.sh

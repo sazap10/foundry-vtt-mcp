@@ -1,8 +1,8 @@
 {
   "id": "foundry-mcp-bridge",
-  "title": "Foundry MCP Bridge",
-  "description": "Connect Foundry VTT to AI models through MCP protocol. Enable AI-powered actor creation, intelligent compendium search, campaign analysis, and interactive dice roll coordination. Supports Claude, local LLMs, and future AI models with comprehensive GM-only security.",
-  "version": "0.8.0",
+  "title": "Foundry MCP Bridge (Cosmere fork)",
+  "description": "Connect Foundry VTT to AI models through MCP protocol. Enable AI-powered actor creation, intelligent compendium search, campaign analysis, and interactive dice roll coordination. Cosmere RPG fork: adds adversary creature indexing (tier/role/defenses) for the cosmere-rpg system on top of the upstream D&D 5e and Pathfinder 2e support.",
+  "version": "0.8.1-cosmere",
   "compatibility": {
     "minimum": "13",
     "verified": "14",
@@ -13,13 +13,17 @@
       "name": "Adam Dooley",
       "email": "adambriandooley@gmail.com",
       "url": "https://github.com/adambdooley"
+    },
+    {
+      "name": "Sachin Pande (Cosmere RPG support)",
+      "url": "https://github.com/sazap10"
     }
   ],
-  "url": "https://github.com/adambdooley/foundry-vtt-mcp",
-  "bugs": "https://github.com/adambdooley/foundry-vtt-mcp/issues",
-  "changelog": "https://github.com/adambdooley/foundry-vtt-mcp/releases",
-  "readme": "https://github.com/adambdooley/foundry-vtt-mcp/blob/master/README.md",
-  "license": "https://github.com/adambdooley/foundry-vtt-mcp/blob/master/LICENSE",
+  "url": "https://github.com/sazap10/foundry-vtt-mcp",
+  "bugs": "https://github.com/sazap10/foundry-vtt-mcp/issues",
+  "changelog": "https://github.com/sazap10/foundry-vtt-mcp/releases",
+  "readme": "https://github.com/sazap10/foundry-vtt-mcp/blob/release_cosmere/README.md",
+  "license": "https://github.com/sazap10/foundry-vtt-mcp/blob/release_cosmere/LICENSE",
   "esmodules": [
     "dist/main.js"
   ],
@@ -35,8 +39,8 @@
     }
   ],
   "socket": true,
-  "manifest": "https://raw.githubusercontent.com/adambdooley/foundry-vtt-mcp/master/packages/foundry-module/module.json",
-  "download": "https://github.com/adambdooley/foundry-vtt-mcp/releases/latest/download/foundry-vtt-mcp.zip",
+  "manifest": "https://raw.githubusercontent.com/sazap10/foundry-vtt-mcp/release_cosmere/packages/foundry-module/module.json",
+  "download": "https://raw.githubusercontent.com/sazap10/foundry-vtt-mcp/release_cosmere/packages/foundry-module/foundry-vtt-mcp.zip",
   "protected": false,
   "coreTranslation": false,
   "library": false,
