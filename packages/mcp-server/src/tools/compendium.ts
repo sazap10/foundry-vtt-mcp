@@ -155,7 +155,7 @@ export class CompendiumTools {
       },
       {
         name: 'list-creatures-by-criteria',
-        description: 'MULTI-SYSTEM CREATURE DISCOVERY: Get a comprehensive list of creatures matching specific criteria. Supports D&D 5e (Challenge Rating) and Pathfinder 2e (Level) with automatic system detection. Perfect for encounter building - returns minimal data so Claude can use built-in monster knowledge to identify suitable creatures by name, then pull full details only for final selections. Features intelligent pack prioritization and high result limits for complete surveys.',
+        description: 'MULTI-SYSTEM CREATURE DISCOVERY: Get a comprehensive list of creatures matching specific criteria. Supports D&D 5e (Challenge Rating), Pathfinder 2e (Level), and Cosmere RPG (Tier/Role/Investiture) with automatic system detection. Perfect for encounter building - returns minimal data so Claude can use built-in monster knowledge to identify suitable creatures by name, then pull full details only for final selections. Features intelligent pack prioritization and high result limits for complete surveys.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -217,6 +217,57 @@ export class CompendiumTools {
               type: 'string',
               enum: ['common', 'uncommon', 'rare', 'unique'],
               description: 'Filter by rarity (Pathfinder 2e)'
+            },
+            // Cosmere RPG specific filters
+            tier: {
+              oneOf: [
+                { type: 'number', description: 'Exact tier value (1-4)' },
+                {
+                  type: 'object',
+                  properties: {
+                    min: { type: 'number', description: 'Minimum tier (1-4)' },
+                    max: { type: 'number', description: 'Maximum tier (1-4)' }
+                  },
+                  description: 'Tier range object (e.g., {"min": 2, "max": 3})'
+                }
+              ],
+              description: 'Filter by adversary Tier (Cosmere RPG, 1-4). Cosmere\'s primary encounter-design dial.'
+            },
+            role: {
+              type: 'string',
+              description: 'Filter by adversary role (Cosmere RPG). Common values: "minion", "rival", "boss". Case-insensitive.'
+            },
+            hasInvestiture: {
+              type: 'boolean',
+              description: 'Filter for Surge/Investiture-using adversaries (Cosmere RPG)'
+            },
+            hitPoints: {
+              oneOf: [
+                { type: 'number', description: 'Exact health/HP value' },
+                {
+                  type: 'object',
+                  properties: {
+                    min: { type: 'number' },
+                    max: { type: 'number' }
+                  },
+                  description: 'Health/HP range object (e.g., {"min": 30, "max": 80})'
+                }
+              ],
+              description: 'Filter by max health/HP (Cosmere RPG; cross-system field)'
+            },
+            defensesMin: {
+              type: 'object',
+              properties: {
+                phy: { type: 'number', description: 'Minimum Physical defense' },
+                cog: { type: 'number', description: 'Minimum Cognitive defense' },
+                spi: { type: 'number', description: 'Minimum Spiritual defense' }
+              },
+              additionalProperties: false,
+              description: 'Minimum defense thresholds (Cosmere RPG). Pass any subset of phy/cog/spi.'
+            },
+            deflectMin: {
+              type: 'number',
+              description: 'Minimum Deflect rating (Cosmere RPG)'
             },
             limit: {
               type: 'number',
@@ -456,6 +507,64 @@ export class CompendiumTools {
       traits: z.array(z.string()).optional(),
       rarity: z.enum(['common', 'uncommon', 'rare', 'unique']).optional(),
 
+      // Cosmere RPG specific
+      tier: z.union([
+        z.object({
+          min: z.number().optional(),
+          max: z.number().optional(),
+        }),
+        z.string().refine((val) => {
+          try {
+            const parsed = JSON.parse(val);
+            return typeof parsed === 'object' && parsed !== null &&
+                   (typeof parsed.min === 'number' || typeof parsed.max === 'number');
+          } catch {
+            return false;
+          }
+        }, { message: 'Tier range must be valid JSON object with min/max numbers' })
+          .transform((val) => JSON.parse(val) as { min?: number; max?: number }),
+        z.number(),
+        z.string().refine((val) => !isNaN(parseFloat(val)), {
+          message: 'Tier must be a valid number'
+        }).transform((val) => parseFloat(val)),
+      ]).optional(),
+      role: z.string().optional(),
+      hasInvestiture: z.union([
+        z.boolean(),
+        z.string().refine((v) => ['true', 'false'].includes(v.toLowerCase())).transform((v) => v.toLowerCase() === 'true'),
+      ]).optional(),
+      hitPoints: z.union([
+        z.object({
+          min: z.number().optional(),
+          max: z.number().optional(),
+        }),
+        z.string().refine((val) => {
+          try {
+            const parsed = JSON.parse(val);
+            return typeof parsed === 'object' && parsed !== null &&
+                   (typeof parsed.min === 'number' || typeof parsed.max === 'number');
+          } catch {
+            return false;
+          }
+        }, { message: 'hitPoints range must be valid JSON object with min/max numbers' })
+          .transform((val) => JSON.parse(val) as { min?: number; max?: number }),
+        z.number(),
+        z.string().refine((val) => !isNaN(parseFloat(val)), {
+          message: 'hitPoints must be a valid number'
+        }).transform((val) => parseFloat(val)),
+      ]).optional(),
+      defensesMin: z.object({
+        phy: z.number().optional(),
+        cog: z.number().optional(),
+        spi: z.number().optional(),
+      }).optional(),
+      deflectMin: z.union([
+        z.number(),
+        z.string().refine((val) => !isNaN(parseFloat(val)), {
+          message: 'deflectMin must be a valid number'
+        }).transform((val) => parseFloat(val)),
+      ]).optional(),
+
       // Spellcasting flags (different names per system)
       hasSpells: z.union([
         z.boolean(),
@@ -521,7 +630,7 @@ export class CompendiumTools {
         criteria: params,
         searchSummary: {
           ...searchSummary,
-          searchStrategy: `Prioritized pack search - ${gameSystem === 'pf2e' ? 'PF2e' : 'D&D 5e'} content first, then modules, then campaign-specific`,
+          searchStrategy: `Prioritized pack search - ${gameSystem === 'pf2e' ? 'PF2e' : gameSystem === 'cosmere-rpg' ? 'Cosmere RPG' : 'D&D 5e'} content first, then modules, then campaign-specific`,
           note: 'Packs searched in priority order to find most relevant creatures first'
         },
         optimizationNote: 'Use creature names to identify suitable options, then call get-compendium-item for final details only'
@@ -756,6 +865,24 @@ export class CompendiumTools {
       pack: { id: creature.pack, label: creature.packLabel }
     };
 
+    if (gameSystem === 'cosmere-rpg') {
+      // Cosmere fields come pre-flattened from data-access.ts; pass them through.
+      if (creature.tier !== undefined) formatted.tier = creature.tier;
+      if (creature.role) formatted.role = creature.role;
+      if (creature.subtype) formatted.subtype = creature.subtype;
+      if (creature.creatureType) formatted.creatureType = creature.creatureType;
+      if (creature.size) formatted.size = creature.size;
+      if (creature.hitPoints !== undefined) formatted.hitPoints = creature.hitPoints;
+      if (creature.focus !== undefined) formatted.focus = creature.focus;
+      if (creature.investiture !== undefined) formatted.investiture = creature.investiture;
+      if (creature.hasInvestiture !== undefined) formatted.hasInvestiture = creature.hasInvestiture;
+      if (creature.defenses) formatted.defenses = creature.defenses;
+      if (creature.deflect !== undefined) formatted.deflect = creature.deflect;
+      if (creature.walkSpeed !== undefined) formatted.walkSpeed = creature.walkSpeed;
+      if (creature.summary) formatted.summary = creature.summary;
+      return formatted;
+    }
+
     if (gameSystem) {
       // System-specific extraction using detection utilities
       const level = getCreatureLevel(creature, gameSystem);
@@ -858,6 +985,38 @@ export class CompendiumTools {
           parts.push(`Level ${min}-${max}`);
         }
       }
+    } else if (gameSystem === 'cosmere-rpg') {
+      if (params.tier !== undefined) {
+        if (typeof params.tier === 'number') {
+          parts.push(`Tier ${params.tier}`);
+        } else if (typeof params.tier === 'object') {
+          const min = params.tier.min ?? 1;
+          const max = params.tier.max ?? 4;
+          parts.push(`Tier ${min}-${max}`);
+        }
+      }
+      if (params.role) parts.push(`role=${String(params.role).toLowerCase()}`);
+      if (params.hasInvestiture !== undefined) {
+        parts.push(params.hasInvestiture ? 'has Investiture' : 'no Investiture');
+      }
+      if (params.hitPoints !== undefined) {
+        if (typeof params.hitPoints === 'number') {
+          parts.push(`hp=${params.hitPoints}`);
+        } else if (typeof params.hitPoints === 'object') {
+          const min = params.hitPoints.min;
+          const max = params.hitPoints.max;
+          if (min !== undefined && max !== undefined) parts.push(`hp ${min}-${max}`);
+          else if (min !== undefined) parts.push(`hp>=${min}`);
+          else if (max !== undefined) parts.push(`hp<=${max}`);
+        }
+      }
+      if (params.defensesMin) {
+        const { phy, cog, spi } = params.defensesMin;
+        if (phy !== undefined) parts.push(`phy>=${phy}`);
+        if (cog !== undefined) parts.push(`cog>=${cog}`);
+        if (spi !== undefined) parts.push(`spi>=${spi}`);
+      }
+      if (params.deflectMin !== undefined) parts.push(`deflect>=${params.deflectMin}`);
     }
 
     if (params.creatureType) parts.push(params.creatureType);
