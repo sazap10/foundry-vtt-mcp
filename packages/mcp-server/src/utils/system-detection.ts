@@ -30,12 +30,7 @@ export async function detectGameSystem(foundryClient: FoundryClient, logger?: Lo
 
   try {
     const worldInfo = await foundryClient.query('foundry-mcp-bridge.getWorldInfo');
-    // Foundry's getWorldInfo can return `system` as either a string (legacy)
-    // or an object `{ id, version }` (current). Accept both.
-    const rawSystem: any = worldInfo.system;
-    const systemId = (typeof rawSystem === 'string'
-      ? rawSystem
-      : rawSystem?.id ?? '').toLowerCase();
+    const systemId = (worldInfo.system ?? '').toLowerCase();
 
     cachedSystemId = systemId;
 
@@ -118,7 +113,11 @@ export const SystemPaths = {
 } as const;
 
 /**
- * Get system-specific data paths based on detected system
+ * Get system-specific data paths based on detected system.
+ *
+ * Returns null for systems without registered paths (cosmere-rpg, dsa5, other).
+ * Callers must branch on `system` for those — falling back to dnd5e paths
+ * silently produces wrong values when called against a non-dnd5e actor.
  */
 export function getSystemPaths(system: GameSystem) {
   if (system === 'dnd5e') {
@@ -126,8 +125,7 @@ export function getSystemPaths(system: GameSystem) {
   } else if (system === 'pf2e') {
     return SystemPaths.pf2e;
   }
-  // Default to dnd5e paths for unknown systems (best effort)
-  return SystemPaths.dnd5e;
+  return null;
 }
 
 /**
@@ -154,22 +152,27 @@ export function extractSystemValue(data: any, path: string | null): any {
 
 /**
  * Get creature level/CR based on system
- * Returns a normalized level value for both D&D 5e and PF2e
+ * Returns a normalized level value for D&D 5e, PF2e, and Cosmere RPG.
  */
 export function getCreatureLevel(actorData: any, system: GameSystem): number | undefined {
-  const paths = getSystemPaths(system);
-
   if (system === 'dnd5e') {
     // D&D 5e: Try CR first, then level
-    const cr = extractSystemValue(actorData, paths.challengeRating);
+    const cr = extractSystemValue(actorData, SystemPaths.dnd5e.challengeRating);
     if (cr !== undefined) return Number(cr);
 
-    const level = extractSystemValue(actorData, paths.level);
+    const level = extractSystemValue(actorData, SystemPaths.dnd5e.level);
     if (level !== undefined) return Number(level);
   } else if (system === 'pf2e') {
     // PF2e: Level is the primary metric
-    const level = extractSystemValue(actorData, paths.level);
+    const level = extractSystemValue(actorData, SystemPaths.pf2e.level);
     if (level !== undefined) return Number(level);
+  } else if (system === 'cosmere-rpg') {
+    // Cosmere: tier (1-4) for adversaries, level for player characters
+    const tier = extractSystemValue(actorData, 'system.tier');
+    if (typeof tier === 'number') return tier;
+
+    const level = extractSystemValue(actorData, 'system.level');
+    if (typeof level === 'number') return level;
   }
 
   return undefined;

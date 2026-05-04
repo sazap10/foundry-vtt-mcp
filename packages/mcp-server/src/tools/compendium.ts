@@ -4,6 +4,7 @@ import { Logger } from '../logger.js';
 import { SystemRegistry } from '../systems/system-registry.js';
 import { detectGameSystem, getSystemPaths, getCreatureLevel, getCreatureType, hasSpellcasting, formatSystemError, type GameSystem } from '../utils/system-detection.js';
 import { GenericFiltersSchema, describeFilters, type GenericFilters } from '../utils/compendium-filters.js';
+import { readDerived } from '../systems/cosmere-rpg/constants.js';
 
 export interface CompendiumToolsOptions {
   foundryClient: FoundryClient;
@@ -697,12 +698,45 @@ export class CompendiumTools {
       summary: this.createItemSummary(item),
     };
 
-    // Add key stats for actors/creatures to reduce need for detail calls
-    if (item.type === 'npc' || item.type === 'character') {
+    // Add key stats for actors/creatures to reduce need for detail calls.
+    // `adversary` is Cosmere RPG's NPC equivalent.
+    if (item.type === 'npc' || item.type === 'character' || item.type === 'adversary') {
       const stats: any = {};
 
       // Use system detection utilities for accurate stat extraction
-      if (gameSystem) {
+      if (gameSystem === 'cosmere-rpg') {
+        const system = item.system || {};
+
+        if (typeof system.tier === 'number') stats.tier = system.tier;
+        if (typeof system.level === 'number') stats.level = system.level;
+        if (typeof system.role === 'string' && system.role) stats.role = system.role.toLowerCase();
+        if (typeof system.type?.id === 'string' && system.type.id) {
+          stats.creatureType = system.type.id.toLowerCase();
+        }
+        if (typeof system.type?.subtype === 'string' && system.type.subtype) {
+          stats.subtype = system.type.subtype;
+        }
+        if (typeof system.size === 'string' && system.size) stats.size = system.size.toLowerCase();
+
+        const hpCurrent = typeof system.resources?.hea?.value === 'number' ? system.resources.hea.value : undefined;
+        const hpMax = readDerived(system.resources?.hea?.max);
+        if (hpCurrent !== undefined || hpMax !== undefined) {
+          stats.hitPoints = { current: hpCurrent, max: hpMax };
+        }
+
+        const phy = readDerived(system.defenses?.phy);
+        const cog = readDerived(system.defenses?.cog);
+        const spi = readDerived(system.defenses?.spi);
+        if (phy !== undefined || cog !== undefined || spi !== undefined) {
+          stats.defenses = { phy, cog, spi };
+        }
+
+        const deflect = readDerived(system.deflect);
+        if (deflect !== undefined) stats.deflect = deflect;
+
+        const investitureMax = readDerived(system.resources?.inv?.max) ?? 0;
+        if (investitureMax > 0) stats.hasInvestiture = true;
+      } else if (gameSystem) {
         // Level/CR (system-specific)
         const level = getCreatureLevel(item, gameSystem);
         if (level !== undefined) {
