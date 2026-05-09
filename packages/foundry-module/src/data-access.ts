@@ -3894,7 +3894,8 @@ export class FoundryDataAccess {
       }
 
       // Validate actor type - support all common actor types including DSA5 creatures
-      const validActorTypes = ['character', 'npc', 'creature'];
+      // and Cosmere RPG adversaries.
+      const validActorTypes = ['character', 'npc', 'creature', 'adversary'];
       if (!validActorTypes.includes(sourceDocument.type)) {
         throw new Error(`Document "${itemId}" has unsupported actor type: ${sourceDocument.type}. Supported types: ${validActorTypes.join(', ')}`);
       }
