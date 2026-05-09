@@ -4,13 +4,16 @@
  * Builds the enhanced creature index from Foundry compendium packs.
  *
  * Runs in Foundry's browser context (foundry-module side); does NOT execute
- * on the Node MCP server. The mcp-server-side `CosmereRpgAdapter` re-uses
- * `extractCreatureData` for any places it needs the same logic on already-
- * loaded actor data.
+ * on the Node MCP server. Mirrors the dnd5e/pf2e/dsa5 IndexBuilder pattern.
  *
  * Schema reference: github.com/the-metalworks/cosmere-rpg
  *   - Adversary actors expose `system.tier`, `system.role`, defenses,
  *     resources, etc. — see ../filters.ts for the indexed field list.
+ *
+ * Note: today the foundry-module's data-access.ts contains a parallel
+ * inline extractor that's the actual runtime path. This file mirrors that
+ * behavior so the two paths produce equivalent shapes if the registry is
+ * ever wired up — same tech-debt situation as dnd5e/pf2e.
  */
 
 import type { IndexBuilder, CosmereRpgCreatureIndex } from '../types.js';
@@ -178,69 +181,67 @@ export class CosmereRpgIndexBuilder implements IndexBuilder {
    * Reads the live (post-derive) `doc.system` block. DerivedValueField
    * fields (resources.*.max, defenses.*, deflect, movement.*.rate) are
    * resolved via `readDerived`, which honours `useOverride`.
+   *
+   * Defaults (tier=0, role='unknown', etc.) match the browser-side extractor
+   * in foundry-module's data-access.ts so both paths produce equivalent
+   * shapes. "0" / "unknown" mean "field not set on the actor"; consumers
+   * filtering by tier/role typically use ranges that exclude these.
    */
   extractCreatureData(doc: any, pack: any): CosmereExtractionResult | null {
     try {
       const system = doc.system ?? {};
 
-      const tier = typeof system.tier === 'number' ? system.tier : undefined;
+      const tier = typeof system.tier === 'number' ? system.tier : 0;
       const level = typeof system.level === 'number' ? system.level : undefined;
 
       const role =
         typeof system.role === 'string' && system.role.length > 0
           ? system.role.toLowerCase()
-          : undefined;
+          : 'unknown';
 
       const size =
         typeof system.size === 'string' && system.size.length > 0
           ? system.size.toLowerCase()
-          : undefined;
+          : 'medium';
 
       const creatureType =
         typeof system.type?.id === 'string' && system.type.id.length > 0
           ? system.type.id.toLowerCase()
-          : undefined;
+          : 'unknown';
 
       const subtype =
         typeof system.type?.subtype === 'string' && system.type.subtype.length > 0
           ? system.type.subtype
-          : undefined;
+          : '';
 
-      const health = readDerived(system.resources?.hea?.max);
-      const focus = readDerived(system.resources?.foc?.max);
+      const health = readDerived(system.resources?.hea?.max) ?? 0;
+      const focus = readDerived(system.resources?.foc?.max) ?? 0;
       const investiture = readDerived(system.resources?.inv?.max) ?? 0;
 
-      let defenses: { phy?: number; cog?: number; spi?: number } | undefined;
-      if (system.defenses) {
-        defenses = {};
-        const phy = readDerived(system.defenses.phy);
-        const cog = readDerived(system.defenses.cog);
-        const spi = readDerived(system.defenses.spi);
-        if (phy !== undefined) defenses.phy = phy;
-        if (cog !== undefined) defenses.cog = cog;
-        if (spi !== undefined) defenses.spi = spi;
-      }
+      const defenses = {
+        phy: readDerived(system.defenses?.phy) ?? 0,
+        cog: readDerived(system.defenses?.cog) ?? 0,
+        spi: readDerived(system.defenses?.spi) ?? 0,
+      };
 
-      const deflect = readDerived(system.deflect);
-      const walkSpeed = readDerived(system.movement?.walk?.rate);
+      const deflect = readDerived(system.deflect) ?? 0;
+      const walkSpeed = readDerived(system.movement?.walk?.rate) ?? 0;
 
-      // Build systemData incrementally so undefined fields stay omitted
-      // (the type uses `exactOptionalPropertyTypes`).
       const systemData: CosmereRpgCreatureIndex['systemData'] = {
-        hasInvestiture: investiture > 0,
+        tier,
+        role,
+        size,
+        creatureType,
+        subtype,
+        health,
+        focus,
         investiture,
+        hasInvestiture: investiture > 0,
+        defenses,
+        deflect,
+        walkSpeed,
       };
       if (level !== undefined) systemData.level = level;
-      if (tier !== undefined) systemData.tier = tier;
-      if (role !== undefined) systemData.role = role;
-      if (size !== undefined) systemData.size = size;
-      if (creatureType !== undefined) systemData.creatureType = creatureType;
-      if (subtype !== undefined) systemData.subtype = subtype;
-      if (health !== undefined) systemData.health = health;
-      if (focus !== undefined) systemData.focus = focus;
-      if (defenses !== undefined) systemData.defenses = defenses;
-      if (deflect !== undefined) systemData.deflect = deflect;
-      if (walkSpeed !== undefined) systemData.walkSpeed = walkSpeed;
 
       return {
         creature: {
@@ -272,8 +273,18 @@ export class CosmereRpgIndexBuilder implements IndexBuilder {
           img: doc.img,
           system: 'cosmere-rpg',
           systemData: {
+            tier: 0,
+            role: 'unknown',
+            size: 'medium',
+            creatureType: 'unknown',
+            subtype: '',
+            health: 0,
+            focus: 0,
             investiture: 0,
             hasInvestiture: false,
+            defenses: { phy: 0, cog: 0, spi: 0 },
+            deflect: 0,
+            walkSpeed: 0,
           },
         },
         errors: 1,

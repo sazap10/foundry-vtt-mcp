@@ -7,10 +7,11 @@
  * Scope of this adapter:
  *   - extractBasicInfo: level, tier, health/focus/investiture (current+max+bonus), deflect
  *   - extractCharacterStats: attributes (with pre→prs remap), defenses, skills (rank+mod)
- *   - extractCreatureData: delegates to CosmereRpgIndexBuilder so the
- *     server- and browser-side indexing paths share a single extractor
  *   - Filters: tier / role / creatureType / size / hasInvestiture / health
  *     / defensesMin / deflectMin (see ./filters.ts)
+ *
+ * Index extraction lives in `./index-builder.ts` (browser-context).
+ * `extractCreatureData` here throws to match the dnd5e/pf2e/dsa5 convention.
  */
 
 import type {
@@ -31,23 +32,8 @@ import {
   COSMERE_RESOURCES,
   readDerived,
 } from './constants.js';
-import { CosmereRpgIndexBuilder } from './index-builder.js';
 
 export class CosmereRpgAdapter implements SystemAdapter {
-  /**
-   * Shared extractor used by both extractCreatureData (Node side) and
-   * the browser-side IndexBuilder. Constructed lazily so the adapter is
-   * cheap to instantiate when only character-stat methods are called.
-   */
-  private indexBuilder: CosmereRpgIndexBuilder | null = null;
-
-  private getIndexBuilder(): CosmereRpgIndexBuilder {
-    if (!this.indexBuilder) {
-      this.indexBuilder = new CosmereRpgIndexBuilder();
-    }
-    return this.indexBuilder;
-  }
-
   getMetadata(): SystemMetadata {
     return {
       id: 'cosmere-rpg',
@@ -73,12 +59,8 @@ export class CosmereRpgAdapter implements SystemAdapter {
     return systemId.toLowerCase() === 'cosmere-rpg';
   }
 
-  /**
-   * Delegate to the IndexBuilder so the same extraction logic powers both
-   * the Node-side adapter call and the browser-side index build.
-   */
-  extractCreatureData(doc: any, pack: any): { creature: SystemCreatureIndex; errors: number } | null {
-    return this.getIndexBuilder().extractCreatureData(doc, pack);
+  extractCreatureData(_doc: any, _pack: any): { creature: SystemCreatureIndex; errors: number } | null {
+    throw new Error('extractCreatureData should be called from CosmereRpgIndexBuilder, not the adapter');
   }
 
   getFilterSchema() {
