@@ -2,7 +2,7 @@
   "id": "foundry-mcp-bridge",
   "title": "Foundry MCP Bridge (Cosmere fork)",
   "description": "Connect Foundry VTT to AI models through MCP protocol. Enable AI-powered actor creation, intelligent compendium search, campaign analysis, and interactive dice roll coordination. Cosmere RPG fork: adds adversary creature indexing (tier/role/defenses) for the cosmere-rpg system on top of the upstream D&D 5e and Pathfinder 2e support.",
-  "version": "0.8.1-cosmere",
+  "version": "0.8.2-cosmere",
   "compatibility": {
     "minimum": "13",
     "verified": "14",
