@@ -1437,6 +1437,12 @@ async function startBackend(): Promise<void> {
 
                   break;
 
+                case 'create-world-items':
+
+                  result = await characterTools.handleCreateWorldItems(args);
+
+                  break;
+
                 // Compendium tools
 
                 case 'search-compendium':
