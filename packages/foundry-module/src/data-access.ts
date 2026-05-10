@@ -3996,6 +3996,105 @@ export class FoundryDataAccess {
   }
 
   /**
+   * Add one or more freshly-authored Item documents to an existing Actor.
+   *
+   * Unlike `createActorFromCompendium*`, the items here are constructed from
+   * caller-supplied data — no compendium lookup. This is the path used to
+   * push planner-authored content (talents, actions, powers, custom gear)
+   * onto a PC or NPC sheet.
+   *
+   * Validation is intentionally light: name + type are required, and the
+   * type is checked against the active system's declared Item document
+   * types when available. Everything else (system schema validation,
+   * required sub-fields) is delegated to Foundry's DataModel layer, which
+   * will fill defaults or throw a meaningful error.
+   */
+  async addActorItems(params: {
+    actorIdentifier: string;
+    items: Array<{
+      name: string;
+      type: string;
+      img?: string;
+      system?: Record<string, any>;
+    }>;
+  }): Promise<{
+    actorId: string;
+    actorName: string;
+    created: Array<{ id: string; name: string; type: string }>;
+  }> {
+    this.validateFoundryState();
+
+    const { actorIdentifier, items } = params;
+
+    if (!actorIdentifier) {
+      throw new Error('actorIdentifier is required');
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new Error('items array is required and must contain at least one entry');
+    }
+
+    const actor = this.findActorByIdentifier(actorIdentifier);
+    if (!actor) {
+      throw new Error(`Actor not found: ${actorIdentifier}`);
+    }
+
+    // Discover the active system's declared Item types so we can give a
+    // useful error before sending the doc to Foundry's DataModel layer.
+    const itemDocTypes = (game as any).system?.documentTypes?.Item;
+    const validTypes: string[] | null =
+      itemDocTypes && typeof itemDocTypes === 'object' ? Object.keys(itemDocTypes) : null;
+
+    const payload = items.map((it, idx) => {
+      if (!it || typeof it.name !== 'string' || it.name.trim().length === 0) {
+        throw new Error(`items[${idx}]: "name" is required and must be a non-empty string`);
+      }
+      if (typeof it.type !== 'string' || it.type.trim().length === 0) {
+        throw new Error(`items[${idx}] ("${it.name}"): "type" is required`);
+      }
+      if (validTypes && !validTypes.includes(it.type)) {
+        throw new Error(
+          `items[${idx}] ("${it.name}"): unknown type "${it.type}" for system "${(game.system as any)?.id}". ` +
+            `Valid Item types: ${validTypes.join(', ')}`
+        );
+      }
+
+      const doc: Record<string, any> = { name: it.name, type: it.type };
+      if (it.img) doc.img = it.img;
+      if (it.system && typeof it.system === 'object') doc.system = it.system;
+      return doc;
+    });
+
+    try {
+      const created = await actor.createEmbeddedDocuments('Item', payload);
+
+      const result = {
+        actorId: actor.id,
+        actorName: actor.name,
+        created: (created || []).map((doc: any) => ({
+          id: doc.id,
+          name: doc.name,
+          type: doc.type,
+        })),
+      };
+
+      this.auditLog(
+        'addActorItems',
+        { actorIdentifier, actorId: actor.id, count: payload.length },
+        'success'
+      );
+      return result;
+    } catch (error) {
+      this.auditLog(
+        'addActorItems',
+        { actorIdentifier, actorId: actor.id, count: payload.length },
+        'failure',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
+      throw error;
+    }
+  }
+
+  /**
    * Get full compendium document with all embedded data
    */
   async getCompendiumDocumentFull(packId: string, documentId: string): Promise<CompendiumEntryFull> {
