@@ -135,6 +135,48 @@ export class CharacterTools {
         },
       },
       {
+        name: 'add-actor-items',
+        description: 'Add one or more freshly-authored Item documents (talents, actions, powers, equipment, etc.) to an existing actor. Items are constructed from the supplied data — no compendium lookup is performed. Each item requires a non-empty "name" and a "type" valid for the active game system (e.g. Cosmere RPG: "action", "talent", "power", "weapon", "armor", "equipment", "loot", "ancestry", "culture", "path", "specialty", "trait", "injury", "connection", "goal", "talent_tree"). Pass system-specific data via the optional "system" object — Foundry\'s DataModel layer fills defaults and validates required sub-fields. GM-only. Returns the created item IDs so callers can update or roll them next.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            actorIdentifier: {
+              type: 'string',
+              description: 'Actor name or ID to receive the items',
+            },
+            items: {
+              type: 'array',
+              minItems: 1,
+              description: 'One or more items to create on the actor sheet',
+              items: {
+                type: 'object',
+                properties: {
+                  name: {
+                    type: 'string',
+                    description: 'Display name of the item',
+                  },
+                  type: {
+                    type: 'string',
+                    description: 'Item type valid for the active system (e.g. "action", "talent", "weapon")',
+                  },
+                  img: {
+                    type: 'string',
+                    description: 'Optional icon path (e.g. "icons/svg/explosion.svg" or a system-bundled path)',
+                  },
+                  system: {
+                    type: 'object',
+                    description: 'System-specific data (free-form). For Cosmere actions: { activation: { type: "utility", cost: { value: 1, type: "act" }, consume: [{ type: "resource", resource: "foc", value: { min: 2, max: 2 } }] }, description: { value: "<p>HTML</p>" } }',
+                    additionalProperties: true,
+                  },
+                },
+                required: ['name', 'type'],
+              },
+            },
+          },
+          required: ['actorIdentifier', 'items'],
+        },
+      },
+      {
         name: 'search-character-items',
         description: 'Search within a character\'s items, spells, actions, and effects. More token-efficient than get-character when you need specific items. Supports text search (name/description) and type filtering. Returns matching items with full details including targeting info for spells. Use this to find specific spells, equipment, feats, or abilities without loading the entire character.',
         inputSchema: {
@@ -373,6 +415,46 @@ export class CharacterTools {
     } catch (error) {
       this.logger.error('Failed to use item', error);
       throw new Error(`Failed to use item "${itemIdentifier}": ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async handleAddActorItems(args: any): Promise<any> {
+    const itemSchema = z.object({
+      name: z.string().min(1, 'Item name cannot be empty'),
+      type: z.string().min(1, 'Item type cannot be empty'),
+      img: z.string().optional(),
+      system: z.record(z.any()).optional(),
+    });
+
+    const schema = z.object({
+      actorIdentifier: z.string().min(1, 'Actor identifier cannot be empty'),
+      items: z.array(itemSchema).min(1, 'At least one item is required'),
+    });
+
+    const { actorIdentifier, items } = schema.parse(args);
+
+    this.logger.info('Adding items to actor', {
+      actorIdentifier,
+      count: items.length,
+      types: items.map(i => i.type),
+    });
+
+    try {
+      const result = await this.foundryClient.query('foundry-mcp-bridge.addActorItems', {
+        actorIdentifier,
+        items,
+      });
+
+      this.logger.debug('Successfully added actor items', {
+        actorName: result.actorName,
+        created: result.created?.length ?? 0,
+      });
+
+      return result;
+
+    } catch (error) {
+      this.logger.error('Failed to add actor items', error);
+      throw new Error(`Failed to add items to "${actorIdentifier}": ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 

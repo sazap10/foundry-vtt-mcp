@@ -1431,6 +1431,12 @@ async function startBackend(): Promise<void> {
 
                   break;
 
+                case 'add-actor-items':
+
+                  result = await characterTools.handleAddActorItems(args);
+
+                  break;
+
                 // Compendium tools
 
                 case 'search-compendium':
