@@ -4095,6 +4095,159 @@ export class FoundryDataAccess {
   }
 
   /**
+   * List world-level Item documents from the Items sidebar.
+   * Optionally filters by type, folder (name or id), or a case-insensitive name substring.
+   */
+  async listWorldItems(params: {
+    type?: string;
+    folder?: string;
+    nameFilter?: string;
+  }): Promise<Array<{
+    id: string;
+    name: string;
+    type: string;
+    img?: string;
+    folderId: string | null;
+    folderName: string | null;
+  }>> {
+    this.validateFoundryState();
+
+    const { type, folder, nameFilter } = params;
+    const nameLower = nameFilter ? nameFilter.toLowerCase() : null;
+
+    // Resolve folder filter to an id if a name/id was provided
+    let folderId: string | null = null;
+    if (folder && folder.trim().length > 0) {
+      const folderTrimmed = folder.trim();
+      const folderDoc = (game as any).folders?.find(
+        (f: any) => f.type === 'Item' && (f.name === folderTrimmed || f.id === folderTrimmed)
+      ) ?? null;
+      if (!folderDoc) {
+        return [];
+      }
+      folderId = folderDoc.id;
+    }
+
+    const result: Array<{
+      id: string;
+      name: string;
+      type: string;
+      img?: string;
+      folderId: string | null;
+      folderName: string | null;
+    }> = [];
+
+    for (const item of (game as any).items) {
+      if (type && item.type !== type) continue;
+      if (folderId && item.folder?.id !== folderId) continue;
+      if (nameLower && !(item.name ?? '').toLowerCase().includes(nameLower)) continue;
+
+      result.push({
+        id: item.id ?? '',
+        name: item.name ?? '',
+        type: item.type,
+        ...(item.img ? { img: item.img } : {}),
+        folderId: item.folder?.id ?? null,
+        folderName: item.folder?.name ?? null,
+      });
+    }
+
+    return result;
+  }
+
+  /**
+   * Update one or more existing world-level Item documents.
+   *
+   * Each entry must supply an `id` plus at least one field to change (name,
+   * img, system, folder). Uses Item.updateDocuments() for a single batched
+   * write. Folder may be supplied as a name or id; if a name is given that
+   * does not exist, it is created automatically (same behaviour as
+   * createWorldItems).
+   */
+  async updateWorldItems(params: {
+    updates: Array<{
+      id: string;
+      name?: string;
+      img?: string;
+      system?: Record<string, any>;
+      folder?: string;
+    }>;
+  }): Promise<{
+    updated: Array<{ id: string; name: string; type: string }>;
+  }> {
+    this.validateFoundryState();
+
+    const { updates } = params;
+
+    if (!Array.isArray(updates) || updates.length === 0) {
+      throw new Error('updates array is required and must contain at least one entry');
+    }
+
+    // Cache folder resolutions so we only look up / create each folder once
+    const folderCache = new Map<string, string>(); // folder param → folder id
+
+    const resolveFolderId = async (folder: string): Promise<string> => {
+      if (folderCache.has(folder)) return folderCache.get(folder)!;
+      const folderTrimmed = folder.trim();
+      let folderDoc = (game as any).folders?.find(
+        (f: any) => f.type === 'Item' && (f.name === folderTrimmed || f.id === folderTrimmed)
+      ) ?? null;
+      if (!folderDoc) {
+        folderDoc = await (Folder as any).create({ name: folderTrimmed, type: 'Item', parent: null });
+      }
+      folderCache.set(folder, folderDoc.id);
+      return folderDoc.id;
+    };
+
+    const payload: Array<Record<string, any>> = [];
+
+    for (let idx = 0; idx < updates.length; idx++) {
+      const upd = updates[idx];
+      if (!upd || typeof upd.id !== 'string' || upd.id.trim().length === 0) {
+        throw new Error(`updates[${idx}]: "id" is required and must be a non-empty string`);
+      }
+
+      const item = (game as any).items?.get(upd.id);
+      if (!item) {
+        throw new Error(`updates[${idx}]: Item "${upd.id}" not found in world`);
+      }
+
+      const patch: Record<string, any> = { _id: upd.id };
+      if (upd.name !== undefined) patch.name = upd.name;
+      if (upd.img !== undefined) patch.img = upd.img;
+      if (upd.system !== undefined) patch.system = upd.system;
+      if (upd.folder !== undefined && upd.folder.trim().length > 0) {
+        patch.folder = await resolveFolderId(upd.folder.trim());
+      }
+
+      payload.push(patch);
+    }
+
+    try {
+      const updated = await (Item as any).updateDocuments(payload);
+
+      const result = {
+        updated: (updated || []).map((doc: any) => ({
+          id: doc.id,
+          name: doc.name,
+          type: doc.type,
+        })),
+      };
+
+      this.auditLog('updateWorldItems', { count: payload.length }, 'success');
+      return result;
+    } catch (error) {
+      this.auditLog(
+        'updateWorldItems',
+        { count: payload.length },
+        'failure',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
+      throw error;
+    }
+  }
+
+  /**
    * Create one or more world-level Item documents (Items sidebar, not embedded on an actor).
    *
    * Uses Item.createDocuments() with no parent so items appear in the Foundry
